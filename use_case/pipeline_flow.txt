@@ -1,0 +1,44 @@
+Alur pipeline (satu garis besar)
+================================
+
+Tujuan: sumber eksternal -> Kafka -> Flink -> output (log dan/atau MinIO).
+
+  [Internet]
+      |
+      |  HTTP (USGS + Open-Meteo)
+      v
+  python/geo_id_stream.py  ----produce JSON---->  Topic Kafka: indo_geo
+                                                      |
+                        +-----------------------------+-----------------------------+
+                        |                             |                             |
+                        v                             v                             v
+                 consumer.py                   Flink: print job              Flink: MinIO job
+            (baca mentah di terminal)      jobs/indonesia_geo_print.sql   jobs/indonesia_geo_to_minio.sql
+                        |                             |                             |
+                        |                             v                             v
+                        |                    Log TaskManager                 s3a://warehouse/geo-events/
+                        |                    (docker compose logs)           (lihat di MinIO Console)
+
+
+Urutan menjalankan (lokal)
+--------------------------
+1) Naikkan stack:  scripts/up.sh  atau  docker compose up -d --build
+   (wajib rebuild image Flink pertama kali setelah update MinIO/S3:  docker compose build)
+2) Terminal A:  cd python && python geo_id_stream.py
+3) Pilih salah satu atau keduanya:
+   - Log Flink:  scripts/run_flink_sql.sh  lalu  docker compose logs -f taskmanager
+   - File di MinIO:  scripts/run_flink_minio_sql.sh  lalu buka http://localhost:9001
+     bucket  warehouse  -> prefix  geo-events/  (file JSON bergulir)
+4) Opsional:  python consumer.py  (cek Kafka)
+
+Kredensial MinIO di Flink (fs.s3a) saat ini diset di docker-compose (default minioadmin).
+Jika kamu ubah MINIO_ROOT_* di credentials.env, samakan juga key di service jobmanager/taskmanager.
+
+Jika topic indo_geo belum ada:
+docker compose exec kafka kafka-topics --create --if-not-exists --bootstrap-server localhost:9092 --replication-factor 1 --partitions 3 --topic indo_geo
+
+Iceberg + BI (Trino, Metabase)
+-------------------------------
+Lihat use_case/iceberg_bi.txt — ringkasnya: docker compose (postgres, trino, metabase),
+lalu python python/curated_to_iceberg.py --replace, Metabase di http://localhost:3030
+menyambung ke catalog Trino "iceberg".

@@ -1,0 +1,9 @@
+# Trino resmi tidak menyertakan driver JDBC Postgres di plugin Iceberg; diperlukan untuk catalog JDBC.
+FROM trinodb/trino:453
+
+USER root
+RUN curl -fsSL -o /usr/lib/trino/plugin/iceberg/postgresql.jar \
+    https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar \
+    && chmod 644 /usr/lib/trino/plugin/iceberg/postgresql.jar
+
+USER trino

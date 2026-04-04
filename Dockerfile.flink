@@ -1,0 +1,27 @@
+FROM flink:1.18-scala_2.12
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# SQL Client: Kafka source (sink MinIO/S3 pakai plugin bawaan image)
+RUN wget -q -O /opt/flink/lib/flink-sql-connector-kafka-3.0.2-1.18.jar \
+    https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.0.2-1.18/flink-sql-connector-kafka-3.0.2-1.18.jar
+
+# Format Parquet untuk filesystem sink (Pola A: curated terpartisi)
+RUN wget -q -O /opt/flink/lib/flink-sql-parquet-1.18.1.jar \
+    https://repo1.maven.org/maven2/org/apache/flink/flink-sql-parquet/1.18.1/flink-sql-parquet-1.18.1.jar
+
+# Parquet writer membutuhkan org.apache.hadoop.conf.Configuration (tidak ada di image Flink minimal)
+RUN wget -q -O /opt/flink/lib/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar \
+    https://repo1.maven.org/maven2/org/apache/flink/flink-shaded-hadoop-2-uber/2.8.3-10.0/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar
+
+# MinIO / S3A: plugin harus di plugins/s3-fs-hadoop (lihat docs Flink filesystem S3)
+RUN set -e; \
+    mkdir -p /opt/flink/plugins/s3-fs-hadoop; \
+    for f in /opt/flink/opt/flink-s3-fs-hadoop-*.jar; do \
+      if [ -f "$f" ]; then cp "$f" /opt/flink/plugins/s3-fs-hadoop/; fi; \
+    done
+
+USER flink

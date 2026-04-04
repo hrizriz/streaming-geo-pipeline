@@ -1,0 +1,21 @@
+# Kredensial + link akses stack lokal (salin dari credentials.env.example)
+credentials.env
+*.access.env
+stack.local.env
+
+.venv/
+__pycache__/
+*.pyc
+.python-version
+.idea/
+.vscode/
+*.jar
+
+# Dataset lokal (Kaggle); isi folder data/ tidak di-commit
+data/*
+!data/.gitkeep
+
+# Log nohup / background lokal
+logs/*
+!logs/.gitkeep
+nohup.out

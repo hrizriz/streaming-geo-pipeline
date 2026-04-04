@@ -1,0 +1,60 @@
+Iceberg (table lake) + BI (Metabase) di stack ini
+=================================================
+
+Ringkasan arsitektur
+--------------------
+- MinIO: data file Iceberg (s3://warehouse/iceberg/) + Parquet Flink yang sudah ada.
+- PostgreSQL: metadata catalog Iceberg (JDBC), dipakai bersama oleh Trino dan PyIceberg.
+- Trino: mesin SQL untuk query tabel Iceberg (Metabase menyambung ke sini).
+- Metabase: dashboard BI (http://localhost:3030).
+
+Jalankan layanan baru
+----------------------
+Dari root project:
+
+  docker compose up -d --build
+
+Layanan tambahan: postgres, trino (build dari Dockerfile.trino), metabase.
+Trino UI tidak dipetakan; query lewat Metabase atau klien JDBC/CLI.
+
+Sinkronkan kunci MinIO
+----------------------
+File config/trino/catalog/iceberg.properties memakai minioadmin secara default.
+Jika MINIO_ROOT_* di credentials.env berbeda, samakan juga s3.aws-access-key / s3.aws-secret-key
+di file itu (atau nanti diganti ke env substitution manual).
+
+Isi tabel Iceberg dari Parquet curated
+--------------------------------------
+1) Pastikan Postgres & MinIO jalan; port 5432 dan 9000 bisa diakses dari host.
+2) pip install -r python/requirements.txt
+3) (Opsional) set ICEBERG_JDBC_URI di credentials.env jika Postgres tidak di localhost.
+4) Muat data:
+
+     python python/curated_to_iceberg.py --replace
+
+   Tanpa --replace: data di-append ke tabel yang sudah ada (bisa menduplikasi baris).
+
+Identifier tabel: iceberg.curated.geo_curated (partisi identity pada kolom dt).
+
+Metabase: tambah data source Trino
+-----------------------------------
+1) Buka http://localhost:3030 — wizard pertama kali (buat akun admin).
+2) Add database -> Trino (kadang tercantum sebagai Presto).
+3) Host: trino   Port: 8080   (dari dalam jaringan Docker; Metabase sudah satu jaringan dengan Trino)
+4) Database / catalog: iceberg
+5) Schema: curated — pilih tabel geo_curated.
+6) Simpan lalu buat Question / Dashboard.
+
+Query cepat lewat Trino (opsional)
+----------------------------------
+Dari host, dengan Trino CLI terpasang, atau curl ke REST API di port 8082:
+
+  Contoh: SELECT * FROM iceberg.curated.geo_curated LIMIT 10;
+
+Port 8082 memetakan http Trino di dalam container (8080).
+
+Alur lanjutan (produksi)
+------------------------
+- Flink sink langsung ke Iceberg (connector Iceberg) agar tidak perlu batch Python.
+- Backup Postgres (metadata catalog) dan kebijakan retensi MinIO.
+- Autentikasi Trino/Metabase, TLS ke MinIO, dan secret tidak di-commit.

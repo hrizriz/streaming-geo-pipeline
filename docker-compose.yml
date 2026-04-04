@@ -1,0 +1,168 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 40s
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        i=0
+        while [ $$i -lt 60 ]; do
+          i=$$((i+1))
+          if kafka-topics --bootstrap-server kafka:29092 --list >/dev/null 2>&1; then break; fi
+          echo "Waiting for Kafka... ($$i/60)"
+          sleep 2
+        done
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --replication-factor 1 --partitions 3 --topic indo_geo
+        echo "Topic indo_geo ready."
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    env_file:
+      - credentials.env
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    env_file:
+      - credentials.env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 1; done
+        mc mb -p local/warehouse || true
+        echo "Bucket warehouse ready."
+
+  jobmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
+    hostname: jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    depends_on:
+      - minio
+      - kafka
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        state.backend: filesystem
+        state.checkpoints.dir: file:///tmp/flink-checkpoints
+        state.savepoints.dir: file:///tmp/flink-savepoints
+        execution.checkpointing.interval: 10 min
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.path.style.access: true
+        fs.s3a.access.key: minioadmin
+        fs.s3a.secret.key: minioadmin
+        fs.s3a.connection.ssl.enabled: false
+        fs.s3a.aws.credentials.provider: org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+    volumes:
+      - ./jobs:/opt/flink/jobs
+
+  taskmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
+    depends_on:
+      - jobmanager
+      - minio
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        execution.checkpointing.interval: 10 min
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.path.style.access: true
+        fs.s3a.access.key: minioadmin
+        fs.s3a.secret.key: minioadmin
+        fs.s3a.connection.ssl.enabled: false
+        fs.s3a.aws.credentials.provider: org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: iceberg
+      POSTGRES_PASSWORD: iceberg
+      POSTGRES_DB: iceberg
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iceberg -d iceberg"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  trino:
+    build:
+      context: .
+      dockerfile: Dockerfile.trino
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./config/trino:/etc/trino:ro
+
+  metabase:
+    image: metabase/metabase:v0.50.23
+    ports:
+      - "3030:3000"
+    depends_on:
+      - trino
+    environment:
+      JAVA_TIMEZONE: Asia/Jakarta
+
+volumes:
+  minio-data:
+  postgres-data:
