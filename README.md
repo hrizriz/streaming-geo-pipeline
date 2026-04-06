@@ -1,12 +1,12 @@
 # streaming-geo-pipeline
 
-Laboratorium *modern data engineering* lokal: **ingest geo & cuaca Indonesia** → **Apache Kafka** → **Apache Flink** → **MinIO (S3-compatible)**. Dilengkapi query **Parquet** (DuckDB), **Apache Iceberg** (catalog JDBC + Trino), dan **Metabase** untuk BI.
+Laboratorium *modern data engineering* lokal: **ingest geo & cuaca Indonesia** → **Apache Kafka** → **Apache Flink** → **MinIO (S3-compatible)**. Dilengkapi query **Parquet** (DuckDB), **Apache Iceberg** (catalog JDBC + Trino), **Metabase** untuk BI, serta **Prometheus**, **Grafana**, dan **Loki** (dengan **Promtail**) untuk metrik & log. **stack_health_agent** (Python) memantau endpoint dari host dan opsional mengirim alert ke **Discord / Slack / Telegram**.
 
 ## Gambaran arsitektur
 
 ![Arsitektur pipeline streaming geo & lakehouse](img/arch.png)
 
-*Versi dapat diedit sebagai diagram Mermaid:*
+**Pipeline data & analytics** (dapat diedit di repo):
 
 ```mermaid
 flowchart LR
@@ -40,6 +40,28 @@ flowchart LR
   PG --- T
   T --> MB
 ```
+
+**Observabilitas & automasi operasi** (kontainer + skrip di host):
+
+```mermaid
+flowchart LR
+  subgraph metrics[Metrik]
+    CA[cAdvisor] --> PR[Prometheus]
+    KE[kafka-exporter] --> PR
+  end
+  subgraph logs[Log]
+    PT[Promtail\nDocker logs] --> LO[Loki]
+  end
+  PR --> GF[Grafana]
+  LO --> GF
+  subgraph host[Host]
+    SH[stack_health_agent\nprobe TCP/HTTP]
+    SH --> DC[docker compose restart]
+    SH --> AL[Discord / Slack / Telegram]
+  end
+```
+
+*Promtail mengirim log semua kontainer stack; Grafana memakai Prometheus + Loki sebagai datasource. Detail urutan dependensi layanan: [`use_case/observability.txt`](use_case/observability.txt).*
 
 ## Prasyarat
 
