@@ -1,0 +1,105 @@
+Observability (Prometheus + Grafana + Loki)
+===========================================
+
+URL (host)
+----------
+- Prometheus UI:    http://localhost:9090
+- Grafana:          http://localhost:3010  (user admin, password lihat env GRAFANA_ADMIN_PASSWORD / default admin)
+- Loki (API):       http://localhost:3100
+- cAdvisor:         http://localhost:8089
+- Kafka exporter:   http://localhost:9308/metrics
+
+Prometheus saat ini scrape:
+- dirinya sendiri
+- cAdvisor (CPU/mem per container)
+- kafka-exporter (ringkasan broker / consumer lag)
+
+Grafana sudah ditanam datasource Prometheus + Loki. Impor dashboard dari grafana.com (contoh):
+- cAdvisor: ID 14282 atau cari "Docker cAdvisor"
+- Kafka:    cari "Kafka Exporter"
+- Loki:     Explore -> datasource Loki -> query {container=~".+"}
+
+Log kontainer dikirim Promtail (baca Docker socket) ke Loki. Di Windows + Docker Desktop,
+socket biasanya tetap dipetakan; cAdvisor kadang metrik disk terbatas dibanding Linux native.
+
+Graf dependensi & urutan start
+-------------------------------
+
+Docker Compose mengatur `depends_on` sebagian besar; init run-once (kafka-init, minio-init)
+harus selesai setelah broker/storage siap.
+
+```mermaid
+flowchart TB
+  Z[Zookeeper]
+  K[Kafka + healthcheck]
+  KI[kafka-init]
+  Mi[MinIO]
+  MII[minio-init]
+  PG[(Postgres)]
+  Ca[cAdvisor]
+  KE[kafka-exporter]
+  Pr[Prometheus]
+  Lo[Loki]
+  Pt[Promtail]
+  Gr[Grafana]
+
+  JM[ Flink JobManager ]
+  TM[ Flink TaskManager ]
+  Tr[Trino]
+  Mb[Metabase]
+
+  Z --> K
+  K --> KI
+  K --> JM
+  K --> KE
+  Mi --> MII
+  Mi --> JM
+  Mi --> TM
+  K --> JM
+  JM --> TM
+  Mi --> Tr
+  PG --> Tr
+  Tr --> Mb
+
+  Ca --> Pr
+  KE --> Pr
+  Pr --> Gr
+  Lo --> Gr
+  Lo --> Pt
+```
+
+Ringkas urutan konseptual:
+1. Zookeeper → Kafka (sehat) → kafka-init + kafka-exporter
+2. MinIO → minio-init; Flink JM/TM butuh Kafka + MinIO
+3. Postgres (sehat) + MinIO → Trino → Metabase
+4. cAdvisor + kafka-exporter → Prometheus; Loki + Promtail; Grafana bergantung Prometheus + Loki
+
+Password Grafana
+----------------
+Set di `credentials.env` (opsional):
+
+  GRAFANA_ADMIN_PASSWORD=ubah-ini
+
+atau export sebelum `docker compose up`. Default fallback: `admin` (lihat docker-compose).
+
+Stack health agent — alert
+---------------------------
+Set webhook (boleh di credentials.env, dibaca otomatis oleh agent):
+
+  DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+  SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+  TELEGRAM_BOT_TOKEN=...
+  TELEGRAM_CHAT_ID=...
+
+Jalankan:
+
+  scripts/run_stack_health_agent.sh run
+
+Opsi: `--alert-cooldown 300`, `--no-alert-recovery`, atau flag CLI `--discord-webhook` dll.
+
+Troubleshooting ringkas
+-----------------------
+- Prometheus target DOWN: pastikan layanan target sudah `docker compose up`; tunggu healthcheck Kafka.
+- Promtail tidak ada log: cek mount docker.sock; di Linux, user promtail harus bisa baca socket.
+- cAdvisor error di Windows: pertimbangkan menonaktifkan service cadvisor sementara atau jalankan stack di WSL2/Linux penuh.
+- Loki OOM: kurangi retention di loki-config.yaml atau batasi volume log.

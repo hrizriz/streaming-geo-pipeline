@@ -82,6 +82,8 @@ flowchart LR
 
 6. **Flink UI**: [http://localhost:8081](http://localhost:8081)
 
+7. **Observability** (setelah `docker compose up`): [Prometheus](http://localhost:9090), [Grafana](http://localhost:3010) (admin / password lihat `use_case/observability.txt`), log terpusat **Loki** + **Promtail**. Detail, graf dependensi, dan alert Discord/Slack/Telegram: [`use_case/observability.txt`](use_case/observability.txt).
+
 ## Port & layanan
 
 | Layanan        | Port host | Catatan                                      |
@@ -94,6 +96,11 @@ flowchart LR
 | PostgreSQL     | 5432      | User/db `iceberg` (metadata Iceberg)         |
 | Trino          | 8082      | HTTP → catalog `iceberg`                     |
 | Metabase       | 3030      | BI → sambungkan ke Trino (host `trino`:8080) |
+| Prometheus     | 9090      | Metrik & target scrape                       |
+| Grafana        | 3010      | Dashboard (hindari bentrok dengan Metabase)  |
+| Loki           | 3100      | API log (query dari Grafana Explore)         |
+| cAdvisor       | 8089      | Metrik per kontainer                         |
+| Kafka exporter | 9308      | Metrik broker (`/metrics`)                   |
 
 ## Struktur repo (ringkas)
 
@@ -110,6 +117,8 @@ flowchart LR
 | `python/stack_health_agent/` | Probe stack, remediate, OpenRouter |
 | `use_case/pipeline_flow.txt` | Urutan jalan & catatan stack |
 | `use_case/iceberg_bi.txt` | Iceberg, Trino, Metabase langkah demi langkah |
+| `use_case/observability.txt` | Prometheus, Grafana, Loki, urutan dependensi, alert |
+| `config/prometheus/`, `config/loki/`, `config/promtail/`, `config/grafana/` | Stack observability |
 
 ## Iceberg & Metabase
 
@@ -140,6 +149,8 @@ scripts/run_stack_health_agent.sh once
 scripts/run_stack_health_agent.sh run
 OPENROUTER_API_KEY=... scripts/run_stack_health_agent.sh diagnose
 ```
+
+**Alert** saat probe gagal / pulih / remediate: set `DISCORD_WEBHOOK_URL`, `SLACK_WEBHOOK_URL`, atau `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` di `credentials.env` (dibaca otomatis saat `run`). Opsi `--alert-cooldown` (default 300s).
 
 Detail: [`use_case/stack_agent.txt`](use_case/stack_agent.txt).
 

@@ -46,3 +46,7 @@ menyambung ke catalog Trino "iceberg".
 Stack health agent (probe + remediate + OpenRouter)
 -----------------------------------------------------
 Lihat use_case/stack_agent.txt — wrapper: scripts/run_stack_health_agent.sh / .ps1
+
+Observability (Prometheus, Grafana, Loki, alert)
+------------------------------------------------
+Lihat use_case/observability.txt

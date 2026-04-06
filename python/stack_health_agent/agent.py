@@ -1,15 +1,14 @@
-"""Loop heartbeat + remediasi opsional."""
+"""Loop heartbeat + remediasi opsional + alert optional."""
 
 from __future__ import annotations
 
-import json
 import logging
 import signal
-import sys
 import time
 from pathlib import Path
 
 from stack_health_agent.diagnose import build_snapshot, call_openrouter
+from stack_health_agent.notify import any_channel_configured, send_probe_alerts
 from stack_health_agent.probes import default_probes, run_all
 from stack_health_agent.remediate import RestartBudget, compose_restart
 
@@ -29,9 +28,17 @@ def run_daemon(
     fail_threshold: int,
     restart_budget: RestartBudget,
     host: str,
+    alert_cooldown_sec: float,
+    alert_on_recovery: bool,
+    discord_url: str | None,
+    slack_url: str | None,
+    telegram_token: str | None,
+    telegram_chat_id: str | None,
 ) -> None:
     probes = default_probes(host)
     fail_streak: dict[str, int] = {p.id: 0 for p in probes}
+    prev_ok: dict[str, bool] = {}
+    last_alert_mono: dict[str, float] = {}
     stop = False
 
     def _sig(_sig=None, _frame=None):
@@ -42,22 +49,63 @@ def run_daemon(
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, _sig)
 
+    alert_enabled = any_channel_configured() or bool(
+        discord_url or slack_url or (telegram_token and telegram_chat_id)
+    )
     log.info(
-        "stack_health_agent: heartbeat setiap %.1fs, remediate=%s, root=%s",
+        "stack_health_agent: heartbeat=%.1fs remediate=%s alert=%s root=%s",
         interval_sec,
         remediate,
+        alert_enabled,
         project_root,
     )
 
     while not stop:
+        now = time.monotonic()
         results = run_all(probes, probe_timeout)
+
         for pid, (ok, detail) in results.items():
+            was_ok = prev_ok.get(pid, True)
+
             if ok:
+                if not was_ok and alert_on_recovery and alert_enabled:
+                    send_probe_alerts(
+                        title=f"[pulih] {pid}",
+                        body="Probe OK kembali.",
+                        discord_url=discord_url,
+                        slack_url=slack_url,
+                        telegram_token=telegram_token,
+                        telegram_chat_id=telegram_chat_id,
+                    )
                 fail_streak[pid] = 0
                 log.debug("%s OK %s", pid, detail)
             else:
                 fail_streak[pid] += 1
                 log.warning("%s GAGAL (%s) streak=%d", pid, detail, fail_streak[pid])
+
+                if alert_enabled:
+                    should_alert = False
+                    if was_ok:
+                        should_alert = True
+                    elif now - last_alert_mono.get(pid, 0.0) >= alert_cooldown_sec:
+                        should_alert = True
+
+                    if should_alert:
+                        ch = send_probe_alerts(
+                            title=f"[GAGAL] {pid}",
+                            body=(
+                                f"Detail: {detail}\n"
+                                f"fail_streak={fail_streak[pid]} (threshold remediate={fail_threshold})"
+                            ),
+                            discord_url=discord_url,
+                            slack_url=slack_url,
+                            telegram_token=telegram_token,
+                            telegram_chat_id=telegram_chat_id,
+                        )
+                        if ch:
+                            last_alert_mono[pid] = now
+                            log.info("alert terkirim %s via %s", pid, ch)
+
                 svc = next(p.compose_service for p in probes if p.id == pid)
                 if remediate and fail_streak[pid] >= fail_threshold:
                     if restart_budget.allow(svc):
@@ -67,10 +115,21 @@ def run_daemon(
                         if ok_r:
                             fail_streak[pid] = 0
                             log.info("restart %s ok: %s", svc, msg)
+                            if alert_enabled:
+                                send_probe_alerts(
+                                    title=f"[remediate] {svc}",
+                                    body=f"docker compose restart {svc}\n{msg[:500]}",
+                                    discord_url=discord_url,
+                                    slack_url=slack_url,
+                                    telegram_token=telegram_token,
+                                    telegram_chat_id=telegram_chat_id,
+                                )
                         else:
                             log.error("restart %s gagal: %s", svc, msg)
                     else:
                         log.error("restart %s dilewati (batas per jam)", svc)
+
+            prev_ok[pid] = ok
 
         time.sleep(interval_sec)
 

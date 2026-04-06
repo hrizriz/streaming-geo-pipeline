@@ -19,8 +19,27 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
+def _load_credentials_env_defaults(project_root: Path) -> None:
+    """Isi os.environ dari credentials.env hanya jika key belum ada (setdefault)."""
+    path = project_root / "credentials.env"
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        key = k.strip()
+        val = v.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, val)
+
+
 def main() -> None:
     root_default = Path(__file__).resolve().parent.parent.parent
+    # Agar defaults --host / env lain terbaca dari credentials.env sebelum parser dibangun
+    _load_credentials_env_defaults(root_default)
+
     parser = argparse.ArgumentParser(description="Stack health agent (probe + remediate + OpenRouter)")
     parser.add_argument(
         "--project-root",
@@ -44,16 +63,29 @@ def main() -> None:
         help="Gagal beruntun sebanyak ini baru restart servis terkait",
     )
     p_run.add_argument("--max-restarts-per-hour", type=int, default=3)
+    p_run.add_argument(
+        "--alert-cooldown",
+        type=float,
+        default=float(os.environ.get("STACK_ALERT_COOLDOWN_SEC", "300")),
+        help="Detik minimal antar alert berulang untuk probe yang sama (masih gagal)",
+    )
+    p_run.add_argument(
+        "--no-alert-recovery",
+        action="store_true",
+        help="Jangan kirim notifikasi saat probe pulih",
+    )
+    p_run.add_argument("--discord-webhook", default=None)
+    p_run.add_argument("--slack-webhook", default=None)
+    p_run.add_argument("--telegram-token", default=None)
+    p_run.add_argument("--telegram-chat-id", default=None)
 
     sub.add_parser("once", help="Satu siklus probe, keluarkan JSON ke stdout")
 
     p_diag = sub.add_parser("diagnose", help="Probe + ringkasan LLM via OpenRouter")
-    p_diag.add_argument(
-        "--model",
-        default=os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
-    )
+    p_diag.add_argument("--model", default=None)
 
     args = parser.parse_args()
+    _load_credentials_env_defaults(args.project_root)
     _setup_logging(args.verbose)
 
     if args.cmd == "run":
@@ -68,6 +100,12 @@ def main() -> None:
             fail_threshold=args.fail_threshold,
             restart_budget=RestartBudget(max_per_hour=args.max_restarts_per_hour),
             host=args.host,
+            alert_cooldown_sec=args.alert_cooldown,
+            alert_on_recovery=not args.no_alert_recovery,
+            discord_url=args.discord_webhook or os.environ.get("DISCORD_WEBHOOK_URL"),
+            slack_url=args.slack_webhook or os.environ.get("SLACK_WEBHOOK_URL"),
+            telegram_token=args.telegram_token or os.environ.get("TELEGRAM_BOT_TOKEN"),
+            telegram_chat_id=args.telegram_chat_id or os.environ.get("TELEGRAM_CHAT_ID"),
         )
     elif args.cmd == "once":
         from stack_health_agent.agent import run_once_json
@@ -86,7 +124,7 @@ def main() -> None:
             project_root=args.project_root,
             probe_timeout=args.probe_timeout,
             host=args.host,
-            model=args.model,
+            model=args.model or os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
         )
         print(text)
     else:

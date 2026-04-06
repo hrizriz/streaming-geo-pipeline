@@ -43,6 +43,21 @@ Cron (Linux) — contoh diagnose tiap 5 menit
 
 Windows Task Scheduler: jalankan run_stack_health_agent.ps1 diagnose dengan env var.
 
+Alert Discord / Slack / Telegram
+---------------------------------
+Set di credentials.env (nilai dimuat otomatis oleh agent jika file ada di root repo):
+
+  DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+  SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+  TELEGRAM_BOT_TOKEN=...
+  TELEGRAM_CHAT_ID=...
+
+Perilaku (mode `run`):
+- Kirim saat probe baru jatuh GAGAL (transisi OK -> down).
+- Kirim ulang maksimal sekali per STACK_ALERT_COOLDOWN_SEC (default 300) selama masih gagal.
+- Jika remediate `docker compose restart` berjalan, agent mengirim ringkasan hasil.
+- Secara default kirim juga saat probe pulih (matikan dengan `--no-alert-recovery`).
+
 Syarat
 ------
 
