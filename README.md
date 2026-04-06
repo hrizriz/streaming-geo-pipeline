@@ -4,6 +4,10 @@ Laboratorium *modern data engineering* lokal: **ingest geo & cuaca Indonesia** â
 
 ## Gambaran arsitektur
 
+![Arsitektur pipeline streaming geo & lakehouse](img/arch.png)
+
+*Versi dapat diedit sebagai diagram Mermaid:*
+
 ```mermaid
 flowchart LR
   subgraph ingest
@@ -103,6 +107,7 @@ flowchart LR
 | `python/geo_id_stream.py` | Producer ke topic `indo_geo` |
 | `python/query_curated_parquet.py` | Baca Parquet di MinIO via DuckDB + boto3 |
 | `python/curated_to_iceberg.py` | Muat Parquet curated â†’ tabel Iceberg |
+| `python/stack_health_agent/` | Probe stack, remediate, OpenRouter |
 | `use_case/pipeline_flow.txt` | Urutan jalan & catatan stack |
 | `use_case/iceberg_bi.txt` | Iceberg, Trino, Metabase langkah demi langkah |
 
@@ -125,6 +130,18 @@ Detail sinkronisasi kunci MinIO antara `credentials.env` dan `config/trino/catal
 python python/query_curated_parquet.py
 python python/query_curated_parquet.py --dt 2026-04-04 --limit 50
 ```
+
+## Stack health agent (opsional)
+
+Probe TCP/HTTP ke layanan lokal, **heartbeat** default 3 detik, remediasi terbatas (`docker compose restart`), dan mode `diagnose` yang memanggil **OpenRouter** (`OPENROUTER_API_KEY`).
+
+```bash
+scripts/run_stack_health_agent.sh once
+scripts/run_stack_health_agent.sh run
+OPENROUTER_API_KEY=... scripts/run_stack_health_agent.sh diagnose
+```
+
+Detail: [`use_case/stack_agent.txt`](use_case/stack_agent.txt).
 
 ## Keamanan & produksi
 

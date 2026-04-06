@@ -1,0 +1,50 @@
+Stack health agent (Python)
+===========================
+
+Modul: python/stack_health_agent/
+
+Jalankan selalu dari folder python/ ATAU pakai wrapper:
+
+  bash scripts/run_stack_health_agent.sh <perintah>
+  powershell scripts/run_stack_health_agent.ps1 <perintah>
+
+Perintah
+---------
+
+1) Satu kali probe, JSON ke stdout:
+
+     python -m stack_health_agent once
+
+2) Daemon: heartbeat (default 3 detik) + remediate docker compose restart jika probe gagal beruntun:
+
+     python -m stack_health_agent run
+
+     Opsi:
+       --interval 3        detik antar siklus
+       --no-remediate      hanya pantau, tidak restart
+       --fail-threshold 2  berapa kali gagal berturut-turut baru restart
+       --max-restarts-per-hour 3
+       --host 127.0.0.1
+       --project-root /path/repo
+
+3) Diagnosis + OpenRouter (butuh OPENROUTER_API_KEY di env atau credentials.env tidak dibaca otomatis — export manual):
+
+     set OPENROUTER_API_KEY=sk-or-...
+     python -m stack_health_agent diagnose
+
+Remediasi: hanya "docker compose restart <nama service>" untuk probe yang gagal,
+dengan batas restart per jam per service. Nama service = jobmanager, kafka, minio, dll.
+
+Cron (Linux) — contoh diagnose tiap 5 menit
+---------------------------------------------
+
+  */5 * * * * cd /path/streaming-geo-pipeline/python && . ../.venv/bin/activate && \
+    OPENROUTER_API_KEY=... python -m stack_health_agent diagnose >> /tmp/stack_agent.log 2>&1
+
+Windows Task Scheduler: jalankan run_stack_health_agent.ps1 diagnose dengan env var.
+
+Syarat
+------
+
+- Docker Compose stack bisa diakses dari host pada port di README (9000, 9092, 8081, …).
+- Perintah `docker` dan `docker compose` tersedia di PATH saat remediate/diagnose (untuk ps).

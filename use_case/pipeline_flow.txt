@@ -42,3 +42,7 @@ Iceberg + BI (Trino, Metabase)
 Lihat use_case/iceberg_bi.txt — ringkasnya: docker compose (postgres, trino, metabase),
 lalu python python/curated_to_iceberg.py --replace, Metabase di http://localhost:3030
 menyambung ke catalog Trino "iceberg".
+
+Stack health agent (probe + remediate + OpenRouter)
+-----------------------------------------------------
+Lihat use_case/stack_agent.txt — wrapper: scripts/run_stack_health_agent.sh / .ps1
